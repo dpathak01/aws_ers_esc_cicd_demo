@@ -51,7 +51,7 @@ jobs:
       - name: Create new task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition YOUR_ECS_TASK_FAMILY \
+            --task-definition devops_demo_td \
             --query "taskDefinition" > taskdef.json
 
           sed -i "s|\"image\": \".*\"|\"image\": \"${ECR_REPO_URI}:${IMAGE_TAG}\"|" taskdef.json
