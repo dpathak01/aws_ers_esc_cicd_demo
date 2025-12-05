@@ -1,37 +1,14 @@
-# ============================
-# 1️⃣ Builder Stage
-# ============================
-FROM node:18-alpine AS builder
+# Use official lightweight Nginx image
+FROM nginx:alpine
 
-WORKDIR /app
+# Remove default nginx website
+RUN rm -rf /usr/share/nginx/html/*
 
-# Copy package.json / package-lock.json first (better caching)
-COPY package*.json ./
+# Copy your index.html to Nginx's default folder
+COPY index.html /usr/share/nginx/html/
 
-# Install all dependencies (including devDeps needed to build TS)
-RUN npm install
+# Expose port 80
+EXPOSE 80
 
-# Copy source code
-COPY . .
-
-# Build TypeScript -> JavaScript
-RUN npm run build
-
-
-# ============================
-# 2️⃣ Runtime Stage (smaller)
-# ============================
-FROM node:18-alpine AS runner
-
-WORKDIR /app
-
-# Copy ONLY required output files
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-
-# Expose the port used by your Node.js app
-EXPOSE 3000
-
-# Start the application
-CMD ["node", "dist/index.js"]
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
