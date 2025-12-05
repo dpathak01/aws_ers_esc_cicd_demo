@@ -74,8 +74,8 @@ jobs:
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
-            --cluster YOUR_ECS_CLUSTER_NAME \
-            --service YOUR_ECS_SERVICE_NAME \
+            --cluster devops_demo_cluster \
+            --service devops_demo_td-service-e22zy8av \
             --task-definition $NEW_TASK_DEF \
             --force-new-deployment
 
