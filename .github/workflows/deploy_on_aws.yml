@@ -1,4 +1,4 @@
-name: Deploy to AWS ECR
+name: Deploy to AWS ECS
 
 on:
   push:
@@ -10,7 +10,7 @@ env:
   ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -32,22 +32,49 @@ jobs:
           aws ecr get-login-password --region $AWS_REGION \
             | docker login --username AWS --password-stdin $ECR_REPO_URI
 
-      # Build & Tag Docker Image
-      - name: Build Docker image
+      # Build Docker Image
+      - name: Build Docker Image
         run: |
           IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
           docker build -t $ECR_REPO_URI:latest .
-          docker tag $ECR_REPO_URI:latest $ECR_REPO_URI:$IMAGE_TAG
+          docker tag  $ECR_REPO_URI:latest $ECR_REPO_URI:$IMAGE_TAG
 
-      # Push Docker image to ECR
-      - name: Push Docker image to ECR
+      # Push Images to ECR
+      - name: Push Docker Images
         run: |
           docker push $ECR_REPO_URI:latest
-          docker push $ECR_REPO_URI:${IMAGE_TAG}
+          docker push $ECR_REPO_URI:$IMAGE_TAG
 
-      # Output Image Tag
-      - name: Finished
+      # Download Task Definition
+      - name: Download current task definition
         run: |
-          echo "Pushed Image Tag: $IMAGE_TAG"
+          aws ecs describe-task-definition \
+            --task-definition YOUR_TASK_DEFINITION_FAMILY \
+            --query taskDefinition \
+            > taskdef.json
+
+      # Update Task Definition with new image
+      - name: Fill in new image ID
+        run: |
+          sed -i "s|\"image\": \".*\"|\"image\": \"$ECR_REPO_URI:$IMAGE_TAG\"|g" taskdef.json
+
+      # Register new Task Definition
+      - name: Register updated task definition
+        run: |
+          aws ecs register-task-definition \
+            --cli-input-json file://taskdef.json
+
+      # Force new ECS Deployment
+      - name: Force new deployment on ECS
+        run: |
+          aws ecs update-service \
+            --cluster YOUR_CLUSTER_NAME \
+            --service YOUR_SERVICE_NAME \
+            --force-new-deployment
+
+      # Completed
+      - name: Done
+        run: |
+          echo "🚀 Deployed version: $IMAGE_TAG"
