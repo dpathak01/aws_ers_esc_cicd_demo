@@ -1,43 +1,53 @@
-name: Deploy to AWS ECS
+name: Deploy to AWS ECR
 
 on:
   push:
-    branches: ["main"]
-  workflow_dispatch:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
 
 jobs:
-  deploy:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      # Checkout Code
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
+      # Configure AWS Credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
-      uses: aws-actions/amazon-ecr-login@v2
+      # Login to Amazon ECR
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+            | docker login --username AWS --password-stdin $ECR_REPO_URI
 
-    - name: Build, Tag & Push Docker image to ECR
-      env:
-        ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
-      run: |
-        IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
-        docker build -t $ECR_REPO_URI:latest .
-        docker tag $ECR_REPO_URI:latest $ECR_REPO_URI:$IMAGE_TAG
-        docker push $ECR_REPO_URI:latest
-        docker push $ECR_REPO_URI:$IMAGE_TAG
-        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+      # Build & Tag Docker Image
+      - name: Build Docker image
+        run: |
+          IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-    - name: Deploy to ECS (update task definition)
-      uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-      with:
-        task-definition: ecs-task-definition.json
-        service: ${{ secrets.ECS_SERVICE }}
-        cluster: ${{ secrets.ECS_CLUSTER }}
-        wait-for-service-stability: true
+          docker build -t $ECR_REPO_URI:latest .
+          docker tag $ECR_REPO_URI:latest $ECR_REPO_URI:$IMAGE_TAG
+
+      # Push Docker image to ECR
+      - name: Push Docker image to ECR
+        run: |
+          docker push $ECR_REPO_URI:latest
+          docker push $ECR_REPO_URI:${IMAGE_TAG}
+
+      # Output Image Tag
+      - name: Finished
+        run: |
+          echo "Pushed Image Tag: $IMAGE_TAG"
