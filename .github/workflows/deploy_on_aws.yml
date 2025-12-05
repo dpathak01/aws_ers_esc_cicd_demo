@@ -9,7 +9,7 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
   ECS_CLUSTER_NAME: devops_demo_cluster
-  ECS_SERVICE_NAME: devops_demo_service
+  ECS_SERVICE_NAME: devops_demo_td-service-e22zy8av
   ECS_TASK_FAMILY: devops_demo_td
 
 jobs:
