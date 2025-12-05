@@ -52,7 +52,10 @@ jobs:
         run: |
           aws ecs describe-task-definition \
             --task-definition devops_demo_td \
-            --query "taskDefinition" > taskdef.json
+            --query "taskDefinition.{family:family, taskRoleArn:taskRoleArn, executionRoleArn:executionRoleArn, networkMode:networkMode, 
+                     containerDefinitions:containerDefinitions, requiresCompatibilities:requiresCompatibilities, cpu:cpu, memory:memory}" \
+            > taskdef.json
+
 
           sed -i "s|\"image\": \".*\"|\"image\": \"${ECR_REPO_URI}:${IMAGE_TAG}\"|" taskdef.json
 
