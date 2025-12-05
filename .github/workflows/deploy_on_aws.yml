@@ -1,4 +1,4 @@
-name: Deploy to AWS ECS
+name: Deploy to AWS ECR & ECS
 
 on:
   push:
@@ -26,55 +26,57 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Login to Amazon ECR
+      # Login to ECR
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION \
             | docker login --username AWS --password-stdin $ECR_REPO_URI
 
-      # Build Docker Image
-      - name: Build Docker Image
+      # Build & Tag Docker Image
+      - name: Build Docker image
         run: |
           IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
           docker build -t $ECR_REPO_URI:latest .
-          docker tag  $ECR_REPO_URI:latest $ECR_REPO_URI:$IMAGE_TAG
+          docker tag $ECR_REPO_URI:latest $ECR_REPO_URI:$IMAGE_TAG
 
-      # Push Images to ECR
-      - name: Push Docker Images
+      # Push Docker image to ECR
+      - name: Push Docker image to ECR
         run: |
           docker push $ECR_REPO_URI:latest
-          docker push $ECR_REPO_URI:$IMAGE_TAG
+          docker push $ECR_REPO_URI:${IMAGE_TAG}
 
-      # Download Task Definition
-      - name: Download current task definition
+      # Prepare updated task definition
+      - name: Create new task definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition YOUR_TASK_DEFINITION_FAMILY \
-            --query taskDefinition \
-            > taskdef.json
+            --task-definition YOUR_ECS_TASK_FAMILY \
+            --query "taskDefinition" > taskdef.json
 
-      # Update Task Definition with new image
-      - name: Fill in new image ID
+          sed -i "s|\"image\": \".*\"|\"image\": \"${ECR_REPO_URI}:${IMAGE_TAG}\"|" taskdef.json
+
+      # Register new ECS Task Definition
+      - name: Register task definition
+        id: register
         run: |
-          sed -i "s|\"image\": \".*\"|\"image\": \"$ECR_REPO_URI:$IMAGE_TAG\"|g" taskdef.json
+          NEW_TASK_DEF=$(aws ecs register-task-definition \
+            --cli-input-json file://taskdef.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)
 
-      # Register new Task Definition
-      - name: Register updated task definition
-        run: |
-          aws ecs register-task-definition \
-            --cli-input-json file://taskdef.json
+          echo "NEW_TASK_DEF=$NEW_TASK_DEF" >> $GITHUB_ENV
 
-      # Force new ECS Deployment
-      - name: Force new deployment on ECS
+      # Update ECS service with new task definition
+      - name: Deploy to ECS
         run: |
           aws ecs update-service \
-            --cluster YOUR_CLUSTER_NAME \
-            --service YOUR_SERVICE_NAME \
+            --cluster YOUR_ECS_CLUSTER_NAME \
+            --service YOUR_ECS_SERVICE_NAME \
+            --task-definition $NEW_TASK_DEF \
             --force-new-deployment
 
-      # Completed
-      - name: Done
+      # Output Image Tag
+      - name: Finished
         run: |
-          echo "🚀 Deployed version: $IMAGE_TAG"
+          echo "Deployed Image Tag: $IMAGE_TAG"
