@@ -1,4 +1,4 @@
-name: Deploy to AWS ECR & ECS
+name: Deploy to AWS ECR + ECS
 
 on:
   push:
@@ -8,17 +8,24 @@ on:
 env:
   AWS_REGION: ap-south-1
   ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+  ECS_CLUSTER_NAME: devops_demo_cluster
+  ECS_SERVICE_NAME: devops_demo_service
+  ECS_TASK_FAMILY: devops_demo_td
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout Code
+      # --------------------------
+      # Checkout code
+      # --------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Configure AWS Credentials
+      # --------------------------
+      # AWS Credentials
+      # --------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -26,13 +33,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # --------------------------
       # Login to ECR
+      # --------------------------
       - name: Login to Amazon ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION \
             | docker login --username AWS --password-stdin $ECR_REPO_URI
 
-      # Build & Tag Docker Image
+      # --------------------------
+      # Build + Tag Image
+      # --------------------------
       - name: Build Docker image
         run: |
           IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
@@ -41,27 +52,36 @@ jobs:
           docker build -t $ECR_REPO_URI:latest .
           docker tag $ECR_REPO_URI:latest $ECR_REPO_URI:$IMAGE_TAG
 
-      # Push Docker image to ECR
+      # --------------------------
+      # Push Image
+      # --------------------------
       - name: Push Docker image to ECR
         run: |
           docker push $ECR_REPO_URI:latest
           docker push $ECR_REPO_URI:${IMAGE_TAG}
 
-      # Prepare updated task definition
-      - name: Create new task definition
+      # --------------------------
+      # Download clean ECS Task Definition
+      # --------------------------
+      - name: Download ECS Task Definition
         run: |
           aws ecs describe-task-definition \
-            --task-definition devops_demo_td \
-            --query "taskDefinition.{family:family, taskRoleArn:taskRoleArn, executionRoleArn:executionRoleArn, networkMode:networkMode, 
-                     containerDefinitions:containerDefinitions, requiresCompatibilities:requiresCompatibilities, cpu:cpu, memory:memory}" \
+            --task-definition $ECS_TASK_FAMILY \
+            --query "taskDefinition.{family:family, taskRoleArn:taskRoleArn, executionRoleArn:executionRoleArn, networkMode:networkMode, containerDefinitions:containerDefinitions, requiresCompatibilities:requiresCompatibilities, cpu:cpu, memory:memory}" \
             > taskdef.json
 
-
+      # --------------------------
+      # Replace image in taskdef.json
+      # --------------------------
+      - name: Update image in task definition
+        run: |
           sed -i "s|\"image\": \".*\"|\"image\": \"${ECR_REPO_URI}:${IMAGE_TAG}\"|" taskdef.json
+          cat taskdef.json
 
-      # Register new ECS Task Definition
-      - name: Register task definition
-        id: register
+      # --------------------------
+      # Register new Task Revision
+      # --------------------------
+      - name: Register new task definition
         run: |
           NEW_TASK_DEF=$(aws ecs register-task-definition \
             --cli-input-json file://taskdef.json \
@@ -69,17 +89,22 @@ jobs:
             --output text)
 
           echo "NEW_TASK_DEF=$NEW_TASK_DEF" >> $GITHUB_ENV
+          echo "New task revision: $NEW_TASK_DEF"
 
-      # Update ECS service with new task definition
-      - name: Deploy to ECS
+      # --------------------------
+      # Deploy to ECS Service
+      # --------------------------
+      - name: Update ECS service to new task definition
         run: |
           aws ecs update-service \
-            --cluster devops_demo_cluster \
-            --service devops_demo_td-service-e22zy8av \
-            --task-definition $NEW_TASK_DEF \
-            --force-new-deployment
+            --cluster $ECS_CLUSTER_NAME \
+            --service $ECS_SERVICE_NAME \
+            --task-definition $NEW_TASK_DEF
 
-      # Output Image Tag
+          echo "ECS Service updated successfully"
+
+      # --------------------------
+      # Finished
+      # --------------------------
       - name: Finished
-        run: |
-          echo "Deployed Image Tag: $IMAGE_TAG"
+        run: echo "Deployment completed successfully 🎉"
